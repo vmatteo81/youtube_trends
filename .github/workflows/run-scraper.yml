@@ -1,0 +1,27 @@
+name: YouTube Scraper Runner
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'  # ogni 30 minuti
+  workflow_dispatch:  # lancio manuale
+
+jobs:
+  run-scraper:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v3
+
+      - name: Create .env file
+        run: echo "${{ secrets.ENV_FILE }}" > .env
+
+      - name: Create data directory
+        run: mkdir -p data
+
+      - name: Build Docker image
+        run: docker build -t youtube-trends .
+
+      - name: Run Docker container
+        run: |
+          docker run --env-file .env -v ${{ github.workspace }}/data:/app/data youtube-trends python -m youtube_trends.web_scraper
