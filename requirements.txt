@@ -1,4 +1,9 @@
+selenium==4.18.1
+requests==2.31.0
+Pillow==10.2.0
+yt-dlp==2025.06.09
 google-api-python-client==2.108.0
 python-dotenv==1.0.0
-setuptools>=65.5.1
-wheel>=0.38.4 
+setuptools>=42.0.0
+wheel>=0.37.0
+beautifulsoup4>=4.12.3 

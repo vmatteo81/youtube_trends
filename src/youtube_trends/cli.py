@@ -1,42 +1,32 @@
 """
-Command-line interface for the YouTube Trends application.
+Command-line interface for YouTube Trends.
 """
 
 import argparse
 from .api import YouTubeAPI
-from .display import display_trending_videos
-
-def parse_args():
-    """Parse command line arguments."""
-    parser = argparse.ArgumentParser(description='Fetch YouTube trending videos.')
-    parser.add_argument(
-        '--region',
-        default='IT',
-        help='Region code (default: IT for Italy)'
-    )
-    parser.add_argument(
-        '--max-results',
-        type=int,
-        default=10,
-        help='Maximum number of results to return (default: 10)'
-    )
-    return parser.parse_args()
+from .display import display_results
 
 def main():
-    """Main CLI function."""
-    args = parse_args()
+    """Main entry point for the CLI."""
+    parser = argparse.ArgumentParser(description='YouTube Trends CLI')
+    parser.add_argument('config', help='Configuration name to use (e.g., "kids")')
+    parser.add_argument('--days-back', type=int, default=7,
+                      help='Number of days to look back for videos (default: 7)')
     
-    print(f"Fetching trending videos in {args.region}...")
+    args = parser.parse_args()
     
     try:
         api = YouTubeAPI()
-        trending_videos = api.get_trending_videos(
-            region_code=args.region,
-            max_results=args.max_results
+        results = api.search_videos(
+            config_name=args.config,
+            days_back=args.days_back
         )
-        display_trending_videos(trending_videos)
+        display_results(results)
     except Exception as e:
-        print(f"An error occurred: {str(e)}")
+        print(f"Error: {str(e)}")
+        return 1
+    
+    return 0
 
-if __name__ == "__main__":
-    main() 
+if __name__ == '__main__':
+    exit(main()) 
