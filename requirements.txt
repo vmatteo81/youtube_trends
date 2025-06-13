@@ -1,0 +1,4 @@
+google-api-python-client==2.108.0
+python-dotenv==1.0.0
+setuptools>=65.5.1
+wheel>=0.38.4 
