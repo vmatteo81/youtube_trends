@@ -1189,8 +1189,6 @@ def main():
     )
     
     scraper = YouTubeScraper()
-    scraper.process_pending_videos()
-    exit()
     try:
         # Automatically discover all .json config files
         config_dir = os.path.join(os.path.dirname(__file__), 'config')
