@@ -3,7 +3,10 @@ requests==2.31.0
 Pillow==10.2.0
 yt-dlp==2025.06.09
 google-api-python-client==2.108.0
+google-cloud-firestore>=2.7.0
 python-dotenv==1.0.0
 setuptools>=42.0.0
 wheel>=0.37.0
-beautifulsoup4>=4.12.3 
+beautifulsoup4>=4.12.3
+selenium>=4.0.0
+webdriver-manager>=3.8.0

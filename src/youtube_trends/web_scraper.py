@@ -20,8 +20,8 @@ from io import BytesIO
 from PIL import Image
 import yt_dlp
 import os
-import base64
 from dotenv import load_dotenv
+import configparser
 
 # Load environment variables
 load_dotenv()
@@ -92,6 +92,106 @@ class YouTubeScraper:
             logger.error(f"Failed to initialize Chrome WebDriver: {e}")
             raise
     
+    def load_urls_from_config(self, config_file: str) -> List[Dict[str, Any]]:
+        """
+        Load URLs from a configuration file along with language and category information.
+        
+        Args:
+            config_file: Path to the configuration file
+            
+        Returns:
+            List of dictionaries containing URL, language, and category information
+        """
+        url_data = []
+        config_path = os.path.join(os.path.dirname(__file__), 'config', config_file)
+        
+        try:
+            if config_file.endswith('.cfg'):
+                # Extract numeric value from config filename
+                config_number = int(config_file.split('.')[0]) if config_file.split('.')[0].isdigit() else 0
+                
+                # Handle .cfg files
+                config = configparser.ConfigParser()
+                config.read(config_path)
+                
+                # Try to read from DEFAULT section first, then from any section
+                if 'url' in config['DEFAULT']:
+                    url_data.append({
+                        'url': config['DEFAULT']['url'],
+                        'language': config_number,
+                        'categories': 0  # Default category for .cfg files
+                    })
+                else:
+                    for section in config.sections():
+                        if 'url' in config[section]:
+                            url_data.append({
+                                'url': config[section]['url'],
+                                'language': config_number,
+                                'categories': 0  # Default category for .cfg files
+                            })
+                            
+                # Also try reading as simple key=value format
+                if not url_data:
+                    with open(config_path, 'r') as f:
+                        for line in f:
+                            line = line.strip()
+                            if line and not line.startswith('#') and '=' in line:
+                                key, value = line.split('=', 1)
+                                if key.strip().lower() == 'url':
+                                    url_data.append({
+                                        'url': value.strip(),
+                                        'language': config_number,
+                                        'categories': 0  # Default category for .cfg files
+                                    })
+                                    
+            elif config_file.endswith('.json'):
+                # Handle .json files
+                with open(config_path, 'r') as f:
+                    data = json.load(f)
+                    language = data.get('language', 'unknown')
+                    
+                    if 'categories' in data:
+                        # Extract numeric value from config filename (e.g., "1.json" -> 1)
+                        config_number = int(config_file.split('.')[0]) if config_file.split('.')[0].isdigit() else 0
+                        
+                        # Process categories and their URLs
+                        for category_id, category_info in data['categories'].items():
+                            # Use category_id as numeric value (1,2,3,4)
+                            category_numeric = int(category_id)
+                            
+                            url_data.append({
+                                'url': category_info['url'],
+                                'language': config_number,  # Use config file number as language identifier
+                                'categories': category_numeric  # Use category ID (1,2,3,4)
+                            })
+                    elif 'urls' in data:
+                        # Extract numeric value from config filename
+                        config_number = int(config_file.split('.')[0]) if config_file.split('.')[0].isdigit() else 0
+                        
+                        # Fallback for simple URL list
+                        for url in data['urls']:
+                            url_data.append({
+                                'url': url,
+                                'language': config_number,
+                                'categories': 0  # Default category
+                            })
+                    elif 'url' in data:
+                        # Extract numeric value from config filename
+                        config_number = int(config_file.split('.')[0]) if config_file.split('.')[0].isdigit() else 0
+                        
+                        url_data.append({
+                            'url': data['url'],
+                            'language': config_number,
+                            'categories': 0  # Default category
+                        })
+                        
+            logger.info(f"Loaded {len(url_data)} URLs from {config_file}")
+            return url_data
+            
+        except Exception as e:
+            logger.error(f"Error loading config file {config_file}: {e}")
+            return []
+    
     def _is_today_upload(self, metadata: str) -> bool:
         """
         Check if the video was uploaded today based on metadata.
@@ -129,20 +229,28 @@ class YouTubeScraper:
             int: Time in seconds
         """
         try:
+            # Clean the time string - remove any extra whitespace and non-numeric characters except colons
+            cleaned_time = time_str.strip()
+            logger.debug(f"Converting time string: '{time_str}' -> cleaned: '{cleaned_time}'")
+            
             # Split the time string into parts
-            parts = time_str.split(':')
+            parts = cleaned_time.split(':')
             
             if len(parts) == 2:  # MM:SS format
                 minutes, seconds = map(int, parts)
-                return minutes * 60 + seconds
+                result = minutes * 60 + seconds
+                logger.debug(f"Converted {cleaned_time} to {result} seconds (MM:SS format)")
+                return result
             elif len(parts) == 3:  # HH:MM:SS format
                 hours, minutes, seconds = map(int, parts)
-                return hours * 3600 + minutes * 60 + seconds
+                result = hours * 3600 + minutes * 60 + seconds
+                logger.debug(f"Converted {cleaned_time} to {result} seconds (HH:MM:SS format)")
+                return result
             else:
-                logger.warning(f"Unexpected time format: {time_str}")
+                logger.warning(f"Unexpected time format: '{time_str}' (parts: {parts})")
                 return 0
         except Exception as e:
-            logger.warning(f"Error converting time {time_str} to seconds: {e}")
+            logger.warning(f"Error converting time '{time_str}' to seconds: {e}")
             return 0
     
     def _extract_video_id(self, url: str) -> str:
@@ -170,12 +278,14 @@ class YouTubeScraper:
             logger.warning(f"Error extracting video ID from {url}: {e}")
             return url
     
-    def search(self, url: str) -> List[Dict[str, Any]]:
+    def search(self, url: str, language: str = 'unknown', categories: str = 'unknown') -> List[Dict[str, Any]]:
         """
         Search YouTube using the provided URL.
         
         Args:
             url: The YouTube search URL
+            language: Language from config file
+            categories: Category from config file
             
         Returns:
             List[Dict[str, Any]]: List of video information dictionaries
@@ -266,17 +376,7 @@ class YouTubeScraper:
                                 except:
                                     logger.warning(f"Could not find thumbnail URL for video {idx}")
                         
-                        # Get channel information - try different selectors
-                        try:
-                            channel_element = element.find_element(By.CSS_SELECTOR, "#channel-name a")
-                            channel = channel_element.text
-                        except:
-                            try:
-                                channel_element = element.find_element(By.CSS_SELECTOR, "ytd-channel-name a")
-                                channel = channel_element.text
-                            except:
-                                channel = "Unknown Channel"
-                                logger.warning(f"Could not find channel name for video {idx}")
+                        # Channel information is no longer needed - using language and categories instead
                         
                         # Get metadata and length
                         try:
@@ -293,27 +393,39 @@ class YouTubeScraper:
                                 logger.info(f"Skipping video {idx} - Currently being watched: {metadata}")
                                 continue
                             
-                            # Try to get video length - try multiple selectors
+                            # Try to get video length - try multiple selectors based on actual YouTube HTML structure
                             length = "Unknown"
-                            try:
-                                length_element = element.find_element(By.CSS_SELECTOR, "span.ytd-thumbnail-overlay-time-status-renderer")
-                                length = length_element.text.strip()
-                            except:
-                                try:
-                                    length_element = element.find_element(By.CSS_SELECTOR, "#text.ytd-thumbnail-overlay-time-status-renderer")
-                                    length = length_element.text.strip()
-                                except:
-                                    logger.warning(f"Could not find length for video {idx}")
+                            selectors = [
+                                ".badge-shape-wiz__text",  # New YouTube badge structure
+                                "#text.ytd-thumbnail-overlay-time-status-renderer",  # Span with id='text'
+                                "span#text.style-scope.ytd-thumbnail-overlay-time-status-renderer",  # Full span selector
+                                "ytd-thumbnail-overlay-time-status-renderer span#text",  # Within time status renderer
+                                "badge-shape .badge-shape-wiz__text",  # Badge shape text
+                                "div.badge-shape-wiz__text",  # Direct badge text div
+                                "span.ytd-thumbnail-overlay-time-status-renderer",  # Original selector
+                                "[aria-label*='minuti'] span",  # Italian minutes
+                                "[aria-label*='minutes'] span",  # English minutes
+                                "[aria-label*='secondi'] span",  # Italian seconds
+                                "[aria-label*='seconds'] span"  # English seconds
+                            ]
                             
-                            # Extract views from metadata
-                            views = "0"
-                            if "views" in metadata.lower():
-                                views = metadata.split("views")[0].strip()
+                            for selector in selectors:
+                                try:
+                                    length_element = element.find_element(By.CSS_SELECTOR, selector)
+                                    length_text = length_element.text.strip()
+                                    if length_text and length_text != "" and ":" in length_text:
+                                        length = length_text
+                                        logger.debug(f"Found length '{length}' using selector: {selector}")
+                                        break
+                                except:
+                                    continue
+                            
+                            if length == "Unknown" or length == "":
+                                logger.warning(f"Could not find length for video {idx} - tried all selectors")
                             
                         except:
                             metadata = "No metadata"
                             length = "Unknown"
-                            views = "0"
                             logger.warning(f"Could not find metadata for video {idx}")
                             continue  # Skip this video if metadata is not found
                         
@@ -322,22 +434,25 @@ class YouTubeScraper:
                             logger.info(f"Skipping video {idx} - Length is unknown")
                             continue
                         
+                        # Convert length to seconds
+                        length_seconds = self._convert_time_to_seconds(length)
+                        
                         logger.info(f"\nVideo {idx} details:")
                         logger.info(f"Title: {title}")
                         logger.info(f"URL: {url}")
                         logger.info(f"Thumbnail: {thumbnail_url}")
-                        logger.info(f"Channel: {channel}")
-                        logger.info(f"Length: {length} seconds")
-                        logger.info(f"Views: {views}")
+                        logger.info(f"Language: {language}")
+                        logger.info(f"Categories: {categories}")
+                        logger.info(f"Length: {length} ({length_seconds} seconds)")
                         logger.info(f"Metadata: {metadata}")
                         
                         video_info = {
                             'title': title,
                             'url': url,
                             'thumbnail_url': thumbnail_url,
-                            'channel': channel,
-                            'length': length,
-                            'views': views,
+                            'language': language,
+                            'categories': categories,
+                            'length': length_seconds,
                             'metadata': metadata
                         }
                         
@@ -696,24 +811,40 @@ def main():
     
     scraper = YouTubeScraper()
     try:
-        # Fixed URL with sp parameter
-        url = "https://www.youtube.com/results?search_query=kids+song&sp=CAISBggCEAEwAQ%253D%253D"
-        #logger.info(f"Starting search with URL: {url}")
-        #results = scraper.search(url)
-        #logger.info("\nFinal Results:")
-        #for video in results:
-        #    logger.info(f"\nTitle: {video['title']}")
-        #    logger.info(f"URL: {video['url']}")
-        #    logger.info(f"Thumbnail: {video['thumbnail_url']}")
-        #    logger.info(f"Channel: {video['channel']}")
-        #    logger.info(f"Length: {video['length']} seconds")
-        #    logger.info(f"Views: {video['views']}")
-        #    logger.info(f"Metadata: {video['metadata']}")
-        #    logger.info("-" * 50)
+        # Automatically discover all .json config files
+        config_dir = os.path.join(os.path.dirname(__file__), 'config')
+        config_files = [f for f in os.listdir(config_dir) if f.endswith('.json')]
+        
+        if not config_files:
+            logger.warning("No .json config files found in config directory")
+            return
+        
+        logger.info(f"Found {len(config_files)} config files: {config_files}")
+        
+        for config_file in config_files:
+            logger.info(f"Processing config file: {config_file}")
+            url_data_list = scraper.load_urls_from_config(config_file)
+            
+            for url_data in url_data_list:
+                url = url_data['url']
+                language = url_data['language']
+                categories = url_data['categories']
+                logger.info(f"Starting search with URL: {url} (Language: {language}, Category: {categories})")
+                results = scraper.search(url, language, categories)
+                logger.info("\nFinal Results:")
+                for video in results:
+                    logger.info(f"\nTitle: {video['title']}")
+                    logger.info(f"URL: {video['url']}")
+                    logger.info(f"Thumbnail: {video['thumbnail_url']}")
+                    logger.info(f"Language: {video['language']}")
+                    logger.info(f"Categories: {video['categories']}")
+                    logger.info(f"Length: {video['length']} seconds")
+                    logger.info(f"Metadata: {video['metadata']}")
+                    logger.info("-" * 50)
             
     finally:
         scraper.process_pending_videos()
         scraper.close()
 
 if __name__ == "__main__":
-    main() 
+    main()

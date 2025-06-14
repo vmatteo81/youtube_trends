@@ -45,6 +45,9 @@ data/*.sqlite3
 # Logs
 *.log
 
+# Firestore credentials
+firestore-access.json
+
 # IDE
 .vscode/
-.idea/ 
+.idea/
