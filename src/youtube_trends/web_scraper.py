@@ -562,7 +562,7 @@ class YouTubeScraper:
 
     def _setup_authentication(self, ydl_opts: dict) -> str:
         """
-        Setup authentication for yt-dlp with multiple fallback methods.
+        Setup authentication for yt-dlp with credential-based authentication.
         
         Args:
             ydl_opts: yt-dlp options dictionary to modify
@@ -570,36 +570,17 @@ class YouTubeScraper:
         Returns:
             str: Description of authentication method used
         """
-        # Priority order: cookie file -> .netrc -> browser cookies -> no auth
-        
-        # 1. Try cookie file (highest priority)
-        cookie_file = '/app/youtube_cookies.txt'
-        if os.path.exists(cookie_file):
-            ydl_opts['cookiefile'] = cookie_file
-            logger.info(f"Using cookie file: {cookie_file}")
-            return "cookie_file"
-        
-        # 2. Try .netrc file
-        netrc_file = '/app/.netrc'
+        # Try .netrc file for username/password authentication
+        netrc_file = os.path.expanduser('~/.netrc')
         if os.path.exists(netrc_file):
-            ydl_opts['netrc'] = True
-            logger.info(f"Using .netrc file: {netrc_file}")
+            ydl_opts['usenetrc'] = True
+            logger.info("Using .netrc for authentication")
             return "netrc"
         
-        # 3. Try browser cookies (if Chrome is available)
-        chrome_config_path = '/root/.config/google-chrome'
-        if os.path.exists(chrome_config_path):
-            try:
-                ydl_opts['cookiesfrombrowser'] = ('chrome',)
-                logger.info("Using cookies from Chrome browser")
-                return "browser_cookies"
-            except Exception as e:
-                logger.warning(f"Could not use browser cookies: {e}")
-        
-        # 4. No authentication - add fallback options
-        logger.warning("No authentication available - using fallback options")
+        # Fallback to no authentication
+        logger.warning("No .netrc file found - using fallback settings")
         self._add_no_auth_fallback(ydl_opts)
-        return "no_auth_fallback"
+        return "no_auth"
     
     def _add_no_auth_fallback(self, ydl_opts: dict):
         """
@@ -773,11 +754,10 @@ class YouTubeScraper:
                     error_msg = str(last_error).lower()
                     
                     if "sign in to confirm" in error_msg or "bot" in error_msg:
-                        # For authentication errors, try removing cookies on next attempt
-                        if retry_count == 1 and 'cookiefile' in ydl_opts:
-                            logger.warning("Cookies may be expired - trying without cookies on next attempt")
-                            ydl_opts_backup = ydl_opts.copy()
-                            ydl_opts.pop('cookiefile', None)
+                        # For authentication errors, apply no-auth fallback on next attempt
+                        if retry_count == 1:
+                            logger.warning("Authentication failed - trying with no-auth fallback on next attempt")
+                            # Apply no-auth fallback
                             self._add_no_auth_fallback(ydl_opts)
                     
                     wait_time = min(2 ** retry_count, 30)  # Exponential backoff with max 30s
@@ -791,8 +771,8 @@ class YouTubeScraper:
                     error_msg = str(last_error).lower()
                     if "sign in to confirm" in error_msg or "bot" in error_msg:
                         logger.error("Authentication required. Please check:")
-                        logger.error("1. YouTube cookies are valid and not expired")
-                        logger.error("2. Cookies were exported correctly from a private/incognito session")
+                        logger.error("1. YouTube username/password credentials are correct in .netrc")
+                        logger.error("2. If using 2FA, ensure you're using an app-specific password")
                         logger.error("3. Consider using a different IP address or VPN")
                     
                     raise last_error

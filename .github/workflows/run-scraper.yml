@@ -19,16 +19,7 @@ jobs:
       - name: Create firestore-access.json file
         run: printf '%s' '${{ vars.FIREBASE_JSON }}' > firestore-access.json
 
-      - name: Create YouTube cookies file (optional)
-        run: |
-          if [ -n "${{ secrets.YOUTUBE_COOKIES }}" ]; then
-            printf '%s' "${{ secrets.YOUTUBE_COOKIES }}" > youtube_cookies.txt
-            echo "YouTube cookies file created"
-          else
-            echo "No YouTube cookies provided"
-          fi   
-
-      - name: Create .netrc file (optional)
+      - name: Create .netrc file for authentication
         run: |
           if [ -n "${{ secrets.YOUTUBE_USERNAME }}" ] && [ -n "${{ secrets.YOUTUBE_PASSWORD }}" ]; then
             cat > .netrc << EOF
@@ -47,7 +38,8 @@ jobs:
             chmod 600 .netrc
             echo ".netrc file created for authentication"
           else
-            echo "No YouTube username/password provided"
+            echo "ERROR: YouTube username/password secrets are required"
+            exit 1
           fi
 
       - name: Create data directory
@@ -56,14 +48,7 @@ jobs:
       - name: Build and run Docker container
         run: |
           docker build -t youtube-scraper .
-          # Mount firestore credentials, YouTube cookies, and .netrc (if available)
-          DOCKER_MOUNTS="-v $(pwd)/firestore-access.json:/app/firestore-access.json"
-          if [ -f "youtube_cookies.txt" ]; then
-            DOCKER_MOUNTS="$DOCKER_MOUNTS -v $(pwd)/youtube_cookies.txt:/app/youtube_cookies.txt"
-            echo "Mounting YouTube cookies file"
-          fi
-          if [ -f ".netrc" ]; then
-            DOCKER_MOUNTS="$DOCKER_MOUNTS -v $(pwd)/.netrc:/root/.netrc"
-            echo "Mounting .netrc file for authentication"
-          fi
+          # Mount firestore credentials and .netrc for authentication
+          DOCKER_MOUNTS="-v $(pwd)/firestore-access.json:/app/firestore-access.json -v $(pwd)/.netrc:/root/.netrc"
+          echo "Mounting .netrc file for authentication"
           docker run $DOCKER_MOUNTS youtube-scraper
