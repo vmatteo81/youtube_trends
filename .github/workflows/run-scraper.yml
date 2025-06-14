@@ -31,9 +31,13 @@ jobs:
       - name: Create data directory
         run: mkdir -p data
 
-      - name: Build Docker image
-        run: docker build -t youtube-trends .
-
-      - name: Run Docker container
+      - name: Build and run Docker container
         run: |
-          docker run --env-file .env -v ${{ github.workspace }}/data:/app/data -v ${{ github.workspace }}/firestore-access.json:/app/firestore-access.json youtube-trends python -m youtube_trends.web_scraper
+          docker build -t youtube-scraper .
+          # Mount firestore credentials and YouTube cookies (if available)
+          DOCKER_MOUNTS="-v $(pwd)/firestore-access.json:/app/firestore-access.json"
+          if [ -f "youtube_cookies.txt" ]; then
+            DOCKER_MOUNTS="$DOCKER_MOUNTS -v $(pwd)/youtube_cookies.txt:/app/youtube_cookies.txt"
+            echo "Mounting YouTube cookies file"
+          fi
+          docker run $DOCKER_MOUNTS youtube-scraper
