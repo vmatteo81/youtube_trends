@@ -107,6 +107,25 @@ class YouTubeScraper:
         try:
             logger.info("🚀 Starting Selenium automated cookie generation...")
             
+            # Verify Chrome and ChromeDriver are available
+            chromedriver_path = '/usr/local/bin/chromedriver'
+            if not os.path.exists(chromedriver_path):
+                logger.error(f"❌ ChromeDriver not found at {chromedriver_path}")
+                return False
+            
+            # Test ChromeDriver accessibility
+            try:
+                import subprocess
+                result = subprocess.run([chromedriver_path, '--version'], capture_output=True, text=True, timeout=10)
+                if result.returncode == 0:
+                    logger.info(f"✅ ChromeDriver version: {result.stdout.strip()}")
+                else:
+                    logger.error(f"❌ ChromeDriver test failed: {result.stderr}")
+                    return False
+            except Exception as e:
+                logger.error(f"❌ ChromeDriver accessibility test failed: {e}")
+                return False
+            
             # Create a new driver instance for cookie generation (non-headless for login)
             cookie_options = Options()
             cookie_options.add_argument("--no-sandbox")
@@ -262,7 +281,31 @@ class YouTubeScraper:
                 
             except Exception as e:
                 logger.error(f"❌ Error during Selenium cookie generation: {e}")
-                logger.error(f"🔍 This could be due to: login issues, 2FA, network problems, or Chrome/WebDriver issues")
+                logger.error(f"🔍 Exception type: {type(e).__name__}")
+                logger.error(f"🌐 Current URL when error occurred: {cookie_driver.current_url if 'cookie_driver' in locals() else 'Driver not initialized'}")
+                
+                # Try to get page source for debugging
+                try:
+                    if 'cookie_driver' in locals():
+                        page_title = cookie_driver.title
+                        logger.error(f"📄 Page title: {page_title}")
+                        
+                        # Check for common error indicators
+                        page_source = cookie_driver.page_source.lower()
+                        if 'captcha' in page_source:
+                            logger.error("🤖 CAPTCHA detected - this may require manual intervention")
+                        elif 'unusual traffic' in page_source:
+                            logger.error("🚦 Unusual traffic detected - IP may be rate limited")
+                        elif 'verify' in page_source and 'phone' in page_source:
+                            logger.error("📱 Phone verification required - use app-specific password")
+                        elif 'two-step' in page_source or '2-step' in page_source:
+                            logger.error("🔐 Two-step verification required - use app-specific password")
+                        else:
+                            logger.error("❓ Unknown login issue - check credentials and account status")
+                except Exception as debug_e:
+                    logger.error(f"🔍 Could not extract debug info: {debug_e}")
+                
+                logger.error(f"🔍 Possible causes: incorrect credentials, 2FA required, CAPTCHA, rate limiting, or Chrome/WebDriver issues")
                 return False
             finally:
                 logger.info("🔄 Closing Chrome WebDriver...")
@@ -274,7 +317,33 @@ class YouTubeScraper:
                 
         except Exception as e:
             logger.error(f"❌ Failed to initialize Selenium WebDriver: {e}")
-            logger.error(f"🔍 Check if Chrome and ChromeDriver are properly installed in the container")
+            logger.error(f"🔍 Exception type: {type(e).__name__}")
+            
+            # Provide specific guidance based on error type
+            error_str = str(e).lower()
+            if 'chromedriver' in error_str:
+                logger.error("🚗 ChromeDriver issue detected:")
+                logger.error("   - Check if ChromeDriver is installed at /usr/local/bin/chromedriver")
+                logger.error("   - Verify ChromeDriver version matches Chrome version")
+                logger.error("   - Ensure ChromeDriver has execute permissions")
+            elif 'chrome' in error_str or 'chromium' in error_str:
+                logger.error("🌐 Chrome browser issue detected:")
+                logger.error("   - Check if Chrome/Chromium is installed in the container")
+                logger.error("   - Verify Chrome binary path is correct")
+                logger.error("   - Check if running in headless environment supports Chrome")
+            elif 'permission' in error_str:
+                logger.error("🔒 Permission issue detected:")
+                logger.error("   - Check file/directory permissions")
+                logger.error("   - Verify container has necessary privileges")
+            elif 'timeout' in error_str:
+                logger.error("⏰ Timeout issue detected:")
+                logger.error("   - Network connectivity may be slow")
+                logger.error("   - Container resources may be limited")
+            else:
+                logger.error("❓ Unknown WebDriver initialization error")
+                logger.error("   - Check Docker container configuration")
+                logger.error("   - Verify all dependencies are installed")
+            
             return False
     
     def load_urls_from_config(self, config_file: str) -> List[Dict[str, Any]]:
