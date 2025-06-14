@@ -92,6 +92,155 @@ class YouTubeScraper:
             logger.error(f"Failed to initialize Chrome WebDriver: {e}")
             raise
     
+    def generate_fresh_cookies(self, username: str, password: str, cookie_file_path: str = '/app/youtube_cookies.txt') -> bool:
+        """
+        Automatically login to YouTube using Selenium and generate fresh cookies.
+        
+        Args:
+            username: YouTube/Google username (email)
+            password: YouTube/Google password (app-specific password for 2FA)
+            cookie_file_path: Path where to save the cookies file
+            
+        Returns:
+            bool: True if cookies were generated successfully, False otherwise
+        """
+        try:
+            logger.info("Starting automated cookie generation...")
+            
+            # Create a new driver instance for cookie generation (non-headless for login)
+            cookie_options = Options()
+            cookie_options.add_argument("--no-sandbox")
+            cookie_options.add_argument("--disable-dev-shm-usage")
+            cookie_options.add_argument("--disable-blink-features=AutomationControlled")
+            cookie_options.add_experimental_option("excludeSwitches", ["enable-automation"])
+            cookie_options.add_experimental_option("useAutomationExtension", False)
+            cookie_options.add_argument("--user-agent=Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36")
+            
+            # Use headless mode in production, but allow override for debugging
+            if os.getenv('COOKIE_DEBUG') != 'true':
+                cookie_options.add_argument("--headless")
+            
+            chromedriver_path = '/usr/local/bin/chromedriver'
+            service = Service(executable_path=chromedriver_path)
+            cookie_driver = webdriver.Chrome(service=service, options=cookie_options)
+            
+            try:
+                # Navigate to Google login page
+                logger.info("Navigating to Google login page...")
+                cookie_driver.get("https://accounts.google.com/signin")
+                time.sleep(3)
+                
+                # Enter email
+                logger.info("Entering email...")
+                email_input = WebDriverWait(cookie_driver, 10).until(
+                    EC.presence_of_element_located((By.ID, "identifierId"))
+                )
+                email_input.send_keys(username)
+                
+                # Click Next
+                next_button = cookie_driver.find_element(By.ID, "identifierNext")
+                next_button.click()
+                time.sleep(3)
+                
+                # Enter password
+                logger.info("Entering password...")
+                password_input = WebDriverWait(cookie_driver, 10).until(
+                    EC.element_to_be_clickable((By.NAME, "password"))
+                )
+                password_input.send_keys(password)
+                
+                # Click Next
+                password_next = cookie_driver.find_element(By.ID, "passwordNext")
+                password_next.click()
+                time.sleep(5)
+                
+                # Check for 2FA or other verification steps
+                current_url = cookie_driver.current_url
+                if "challenge" in current_url or "verification" in current_url:
+                    logger.error("2FA or additional verification required. Please use app-specific password or disable 2FA temporarily.")
+                    return False
+                
+                # Check for login errors
+                try:
+                    error_elements = cookie_driver.find_elements(By.CSS_SELECTOR, "[jsname='B34EJ'] span")
+                    if error_elements and any("wrong" in elem.text.lower() or "incorrect" in elem.text.lower() for elem in error_elements):
+                        logger.error("Login failed - incorrect credentials")
+                        return False
+                except:
+                    pass
+                
+                # Navigate to YouTube to establish session
+                logger.info("Navigating to YouTube...")
+                cookie_driver.get("https://www.youtube.com")
+                time.sleep(5)
+                
+                # Check if login was successful by looking for user avatar or sign-in button
+                login_successful = False
+                try:
+                    # Look for user avatar (indicates successful login)
+                    WebDriverWait(cookie_driver, 10).until(
+                        EC.presence_of_element_located((By.CSS_SELECTOR, "button[aria-label*='Account menu'], button[aria-label*='Google Account'], #avatar-btn"))
+                    )
+                    logger.info("Login successful - user avatar found")
+                    login_successful = True
+                except:
+                    # Alternative check: look for user name or profile elements
+                    try:
+                        profile_elements = cookie_driver.find_elements(By.CSS_SELECTOR, "#owner-name, .ytd-channel-name, [aria-label*='Account']") 
+                        if profile_elements:
+                            logger.info("Login successful - profile elements found")
+                            login_successful = True
+                    except:
+                        pass
+                
+                if not login_successful:
+                    # Check if we're still on login page or have sign-in button
+                    sign_in_elements = cookie_driver.find_elements(By.XPATH, "//a[contains(@href, 'accounts.google.com')] | //button[contains(text(), 'Sign in')] | //*[contains(text(), 'Sign in')]") 
+                    if sign_in_elements:
+                        logger.error("Login failed - still showing sign-in options")
+                        return False
+                    logger.info("Login status unclear but proceeding with cookie extraction")
+                
+                # Navigate to robots.txt to ensure we're on YouTube domain
+                cookie_driver.get("https://www.youtube.com/robots.txt")
+                time.sleep(2)
+                
+                # Extract cookies
+                logger.info("Extracting cookies...")
+                cookies = cookie_driver.get_cookies()
+                
+                # Convert cookies to Netscape format for yt-dlp
+                cookie_content = "# Netscape HTTP Cookie File\n"
+                for cookie in cookies:
+                    domain = cookie['domain']
+                    flag = 'TRUE' if domain.startswith('.') else 'FALSE'
+                    path = cookie['path']
+                    secure = 'TRUE' if cookie.get('secure', False) else 'FALSE'
+                    expiry = str(int(cookie.get('expiry', time.time() + 86400 * 365)))  # Default 1 year
+                    name = cookie['name']
+                    value = cookie['value']
+                    
+                    cookie_content += f"{domain}\t{flag}\t{path}\t{secure}\t{expiry}\t{name}\t{value}\n"
+                
+                # Save cookies to file
+                os.makedirs(os.path.dirname(cookie_file_path), exist_ok=True)
+                with open(cookie_file_path, 'w', encoding='utf-8') as f:
+                    f.write(cookie_content)
+                
+                logger.info(f"Cookies saved successfully to {cookie_file_path}")
+                logger.info(f"Generated {len(cookies)} cookies")
+                return True
+                
+            except Exception as e:
+                logger.error(f"Error during cookie generation: {e}")
+                return False
+            finally:
+                cookie_driver.quit()
+                
+        except Exception as e:
+            logger.error(f"Failed to initialize cookie generation driver: {e}")
+            return False
+    
     def load_urls_from_config(self, config_file: str) -> List[Dict[str, Any]]:
         """
         Load URLs from a configuration file along with language and category information.
@@ -562,7 +711,8 @@ class YouTubeScraper:
 
     def _setup_authentication(self, ydl_opts: dict) -> str:
         """
-        Setup authentication for yt-dlp with credential-based authentication.
+        Setup authentication for yt-dlp with multiple fallback methods.
+        Automatically generates fresh cookies if credentials are available.
         
         Args:
             ydl_opts: yt-dlp options dictionary to modify
@@ -570,15 +720,43 @@ class YouTubeScraper:
         Returns:
             str: Description of authentication method used
         """
-        # Try .netrc file for username/password authentication
+        # Priority 1: Try existing cookie file
+        cookie_file = '/app/youtube_cookies.txt'
+        if os.path.exists(cookie_file):
+            ydl_opts['cookiefile'] = cookie_file
+            logger.info("Using existing YouTube cookies for authentication")
+            return "cookies"
+        
+        # Priority 2: Auto-generate cookies from credentials if available
+        username = os.getenv('YOUTUBE_USERNAME')
+        password = os.getenv('YOUTUBE_PASSWORD')
+        
+        if username and password:
+            logger.info("Credentials found - attempting to generate fresh cookies automatically")
+            if self.generate_fresh_cookies(username, password, cookie_file):
+                ydl_opts['cookiefile'] = cookie_file
+                logger.info("Using auto-generated YouTube cookies for authentication")
+                return "auto_generated_cookies"
+            else:
+                logger.warning("Failed to generate cookies automatically - falling back to .netrc")
+        
+        # Priority 3: Try .netrc file for username/password authentication
         netrc_file = os.path.expanduser('~/.netrc')
         if os.path.exists(netrc_file):
             ydl_opts['usenetrc'] = True
             logger.info("Using .netrc for authentication")
             return "netrc"
         
+        # Priority 4: Try browser cookies
+        try:
+            ydl_opts['cookiesfrombrowser'] = ('chrome',)
+            logger.info("Using browser cookies for authentication")
+            return "browser_cookies"
+        except Exception as e:
+            logger.warning(f"Browser cookies not available: {e}")
+        
         # Fallback to no authentication
-        logger.warning("No .netrc file found - using fallback settings")
+        logger.warning("No authentication method available - using fallback settings")
         self._add_no_auth_fallback(ydl_opts)
         return "no_auth"
     
@@ -754,8 +932,13 @@ class YouTubeScraper:
                     error_msg = str(last_error).lower()
                     
                     if "sign in to confirm" in error_msg or "bot" in error_msg:
-                        # For authentication errors, apply no-auth fallback on next attempt
-                        if retry_count == 1:
+                        # For authentication errors, try removing cookies if they exist
+                        if retry_count == 1 and 'cookiefile' in ydl_opts:
+                            logger.warning("Authentication failed with cookies - removing cookies for retry")
+                            # Remove cookiefile and try without cookies
+                            ydl_opts.pop('cookiefile', None)
+                            self._add_no_auth_fallback(ydl_opts)
+                        elif retry_count == 1:
                             logger.warning("Authentication failed - trying with no-auth fallback on next attempt")
                             # Apply no-auth fallback
                             self._add_no_auth_fallback(ydl_opts)
@@ -771,9 +954,11 @@ class YouTubeScraper:
                     error_msg = str(last_error).lower()
                     if "sign in to confirm" in error_msg or "bot" in error_msg:
                         logger.error("Authentication required. Please check:")
-                        logger.error("1. YouTube username/password credentials are correct in .netrc")
-                        logger.error("2. If using 2FA, ensure you're using an app-specific password")
-                        logger.error("3. Consider using a different IP address or VPN")
+                        logger.error("1. YouTube cookies are valid and not expired")
+                        logger.error("2. Cookies were exported correctly from a logged-in session")
+                        logger.error("3. If using credentials, check username/password in .netrc")
+                        logger.error("4. If using 2FA, ensure you're using an app-specific password")
+                        logger.error("5. Consider using a different IP address or VPN")
                     
                     raise last_error
 

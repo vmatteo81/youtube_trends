@@ -19,27 +19,13 @@ jobs:
       - name: Create firestore-access.json file
         run: printf '%s' '${{ vars.FIREBASE_JSON }}' > firestore-access.json
 
-      - name: Create .netrc file for authentication
+      - name: Create YouTube cookies file (if provided)
         run: |
-          if [ -n "${{ secrets.YOUTUBE_USERNAME }}" ] && [ -n "${{ secrets.YOUTUBE_PASSWORD }}" ]; then
-            cat > .netrc << EOF
-          machine youtube.com
-          login ${{ secrets.YOUTUBE_USERNAME }}
-          password ${{ secrets.YOUTUBE_PASSWORD }}
-          
-          machine www.youtube.com
-          login ${{ secrets.YOUTUBE_USERNAME }}
-          password ${{ secrets.YOUTUBE_PASSWORD }}
-          
-          machine accounts.google.com
-          login ${{ secrets.YOUTUBE_USERNAME }}
-          password ${{ secrets.YOUTUBE_PASSWORD }}
-          EOF
-            chmod 600 .netrc
-            echo ".netrc file created for authentication"
+          if [ -n "${{ secrets.YOUTUBE_COOKIES }}" ]; then
+            echo "${{ secrets.YOUTUBE_COOKIES }}" > youtube_cookies.txt
+            echo "YouTube cookies file created"
           else
-            echo "ERROR: YouTube username/password secrets are required"
-            exit 1
+            echo "No YouTube cookies provided - will attempt authentication without cookies"
           fi
 
       - name: Create data directory
@@ -48,7 +34,19 @@ jobs:
       - name: Build and run Docker container
         run: |
           docker build -t youtube-scraper .
-          # Mount firestore credentials and .netrc for authentication
-          DOCKER_MOUNTS="-v $(pwd)/firestore-access.json:/app/firestore-access.json -v $(pwd)/.netrc:/root/.netrc"
-          echo "Mounting .netrc file for authentication"
-          docker run $DOCKER_MOUNTS youtube-scraper
+          # Mount firestore credentials and YouTube cookies (if available)
+          DOCKER_MOUNTS="-v $(pwd)/firestore-access.json:/app/firestore-access.json"
+          
+          # Set up environment variables for automated cookie generation
+          DOCKER_ENV=""
+          if [ -n "${{ secrets.YOUTUBE_USERNAME }}" ] && [ -n "${{ secrets.YOUTUBE_PASSWORD }}" ]; then
+            DOCKER_ENV="-e YOUTUBE_USERNAME='${{ secrets.YOUTUBE_USERNAME }}' -e YOUTUBE_PASSWORD='${{ secrets.YOUTUBE_PASSWORD }}'"
+            echo "YouTube credentials provided - will attempt automated cookie generation"
+          fi
+          
+          if [ -f "youtube_cookies.txt" ]; then
+            DOCKER_MOUNTS="$DOCKER_MOUNTS -v $(pwd)/youtube_cookies.txt:/app/youtube_cookies.txt"
+            echo "Mounting existing YouTube cookies file"
+          fi
+          
+          docker run $DOCKER_MOUNTS $DOCKER_ENV youtube-scraper
