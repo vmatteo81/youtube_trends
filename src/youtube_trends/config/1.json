@@ -4,17 +4,17 @@
     "1": {
       "name": "tunes",
       "description": "kids songs",
-      "url": "https://www.youtube.com/results?search_query=kids+song&sp=CAISBggCEAEwAQ%253D%253D"
+      "url": "https://www.youtube.com/results?search_query=kids+song&sp=CAISBggBEAEwAQ%253D%253D"
     },
     "2": {
       "name": "tales",
       "description": "fables and stories",
-      "url": "https://www.youtube.com/results?search_query=story+for+kids&sp=CAISBggEEAEwAQ%253D%253D"
+      "url": "https://www.youtube.com/results?search_query=story+for+kids&sp=CAISBggBEAEwAQ%253D%253D"
     },
     "3": {
       "name": "education",
       "description": "educational content",
-      "url": "https://www.youtube.com/results?search_query=educational+videos+for+kids&sp=CAISBggDEAEwAQ%253D%253D"
+      "url": "https://www.youtube.com/results?search_query=educational+videos+for+kids&sp=CAISBggBEAEwAQ%253D%253D"
     }
   },
   "language": "en",

@@ -681,12 +681,14 @@ class YouTubeScraper:
         img.save(thumbnail_path, "JPEG")
         return thumbnail_path
 
-    def submit_to_justjackpot(self, video_data: dict) -> bool:
+    def submit_to_justjackpot(self, video_data: dict, language: int = 1, category: int = 1) -> bool:
         """
         Submit video data to JustJackpot API.
         
         Args:
             video_data: Dictionary containing video information
+            language: Language ID for the video
+            category: Category ID for the video
             
         Returns:
             bool: True if submission was successful, False otherwise
@@ -709,8 +711,8 @@ class YouTubeScraper:
             # Prepare form data
             form_data = {
                 'cliente': '3',  # jktv-free
-                'categoria': '1',  # tunes
-                'lingua': '1',  # en
+                'categoria': str(category),  # Use dynamic category
+                'lingua': str(language),  # Use dynamic language
                 'url_originale': video_data['url'],
                 'lunghezza': length_str
             }
@@ -759,46 +761,96 @@ class YouTubeScraper:
             except Exception as e:
                 logger.error(f"Error cleaning up files: {e}")
 
+    def _get_language_category_combinations(self):
+        """Get all language-category combinations from config files."""
+        combinations = set()
+        config_dir = os.path.join(os.path.dirname(__file__), 'config')
+        
+        if not os.path.exists(config_dir):
+            logger.warning(f"Config directory not found: {config_dir}")
+            return list(combinations)
+        
+        for filename in os.listdir(config_dir):
+            if filename.endswith('.json'):
+                try:
+                    url_data_list = self.load_urls_from_config(filename)
+                    if url_data_list:
+                        # load_urls_from_config returns a list of dictionaries
+                        for url_data in url_data_list:
+                            language = url_data.get('language')
+                            category = url_data.get('categories')
+                            
+                            if language and category:
+                                combinations.add((language, category))
+                except Exception as e:
+                    logger.error(f"Error loading config file {filename}: {e}")
+        
+        return list(combinations)
+
     def process_pending_videos(self):
-        """Process videos that need upload dates and resize their thumbnails."""
+        """Process videos that need upload dates and resize their thumbnails.
+        Uploads one video per category per language combination per run.
+        """
         logger.info("\n" + "="*50)
         logger.info("Starting process_pending_videos")
         logger.info("="*50 + "\n")
+        
+        videos_processed = 0  # Initialize at the beginning
         
         if not self.db:
             logger.error("Database not initialized")
             return
             
         try:
-            # Get one video that needs processing
-            video = self.db.get_pending_video()
-            if not video:
+            # Get all available language-category combinations from config files
+            language_category_combinations = self._get_language_category_combinations()
+            
+            if not language_category_combinations:
+                logger.info("No language-category combinations found in config files")
+                return
+            
+            logger.info(f"Found {len(language_category_combinations)} language-category combinations: {language_category_combinations}")
+            
+            # Get one video per language-category combination
+            videos = self.db.get_pending_videos_by_category_language(language_category_combinations)
+            
+            if not videos:
                 logger.info("No videos need processing")
                 return
                 
-            logger.info(f"Processing video: {video['url']}")
+            logger.info(f"Processing {len(videos)} videos")
             
-            # Load the video page
-            self.driver.get(video['url'])
-            time.sleep(2)  # Wait for page to load
-        
-            # Prepare video data for API submission
-            video_data = {
-                'title': video['title'],
-                'url': video['url'],
-                'thumbnail_url': video['thumbnail_url'],
-                'length': video['length']
-            }
-            
-            # Submit to JustJackpot
-            if self.submit_to_justjackpot(video_data):
-                logger.info("Video submitted to JustJackpot")
-            else:
-                logger.error("Failed to submit video to JustJackpot")
+            for video in videos:
+                language = video.get('language', 'unknown')
+                categories = video.get('categories', 'unknown')
                 
+                logger.info(f"Processing video: {video['url']} (language={language}, categories={categories})")
+                
+                # Load the video page
+                self.driver.get(video['url'])
+                time.sleep(2)  # Wait for page to load
+            
+                # Prepare video data for API submission
+                video_data = {
+                    'title': video['title'],
+                    'url': video['url'],
+                    'thumbnail_url': video['thumbnail_url'],
+                    'length': video['length']
+                }
+                
+                # Submit to JustJackpot with correct language and category
+                if self.submit_to_justjackpot(video_data, language=language, category=categories):
+                    logger.info(f"Video submitted to JustJackpot for {language}/{categories}")
+                    videos_processed += 1
+                else:
+                    logger.error(f"Failed to submit video to JustJackpot for {language}/{categories}")
+            
+            logger.info(f"Total videos processed: {videos_processed}")
+                    
         except Exception as e:
-            logger.error(f"Error processing video: {e}")
+            logger.error(f"Error processing videos: {e}")
         finally:
+            logger.info(f"Finished processing. Total videos uploaded: {videos_processed}")
             self.close()
 
 def main():

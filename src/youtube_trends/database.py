@@ -2,7 +2,7 @@
 
 import os
 import logging
-from datetime import datetime
+from datetime import datetime, timedelta
 from typing import Optional, Dict, Any, List
 import sys
 from google.cloud import firestore
@@ -106,28 +106,40 @@ class YouTubeDatabase:
             logger.error(f"Error adding video to Firestore: {e}")
             return False
 
-    def get_pending_video(self) -> Optional[Dict[str, Any]]:
-        """Get a single video that needs upload date processing"""
+    def get_pending_videos_by_category_language(self, language_category_combinations: List[tuple]) -> List[Dict[str, Any]]:
+        """Get one video per category per language combination using separate queries"""
+        selected_videos = []
+        
         try:
-            # Query for videos where upload_date is None (simplified to avoid composite index)
-            query = self.collection.where(filter=FieldFilter('upload_date', '==', None)).limit(10)
-            docs = query.stream()
+            for language, category in language_category_combinations:
+                # Make a separate query for each language-category combination
+                query = (self.collection
+                        .where(filter=FieldFilter('upload_date', '==', None))
+                        .where(filter=FieldFilter('is_shorts', '==', False))
+                        .where(filter=FieldFilter('language', '==', language))
+                        .where(filter=FieldFilter('categories', '==', category))
+                        .order_by('created_at')
+                        .limit(1))
+                
+                docs = list(query.stream())
+                
+                if docs:
+                    result = docs[0].to_dict()
+                    result['id'] = docs[0].id  # Add document ID
+                    selected_videos.append(result)
+                    logger.info(f"Selected video for language={language}, category={category}: {result['url']}")
+                else:
+                    logger.info(f"No video found for language={language}, category={category}")
             
-            # Filter out SHORTS videos in application code
-            for doc in docs:
-                result = doc.to_dict()
-                # Skip if it's a SHORTS video
-                if result.get('length') == 'SHORTS seconds':
-                    continue
-                    
-                result['id'] = doc.id  # Add document ID
-                logger.info(f"Found pending video: {result['url']}")
-                return result
+            if not selected_videos:
+                logger.info("No videos available for upload")
+            else:
+                logger.info(f"Found {len(selected_videos)} videos for different language-category combinations")
             
-            return None
+            return selected_videos
         except Exception as e:
-            logger.error(f"Error getting pending video from Firestore: {e}")
-            return None
+            logger.error(f"Error getting pending videos from Firestore: {e}")
+            return []
 
     def update_video(self, url: str, updates: Dict[str, Any]) -> bool:
         """
@@ -221,3 +233,38 @@ class YouTubeDatabase:
         except Exception as e:
             logger.error(f"Error updating upload_date in Firestore: {e}")
             raise
+
+    def get_pending_videos_by_category_language(self, language_category_combinations: List[tuple]) -> List[Dict[str, Any]]:
+        """Get one video per category per language combination using separate queries"""
+        selected_videos = []
+        
+        try:
+            for language, category in language_category_combinations:
+                # Make a separate query for each language-category combination
+                query = (self.collection
+                        .where(filter=FieldFilter('upload_date', '==', None))
+                        .where(filter=FieldFilter('is_shorts', '==', False))
+                        .where(filter=FieldFilter('language', '==', language))
+                        .where(filter=FieldFilter('categories', '==', category))
+                        .order_by('created_at')
+                        .limit(1))
+                
+                docs = list(query.stream())
+                
+                if docs:
+                    result = docs[0].to_dict()
+                    result['id'] = docs[0].id  # Add document ID
+                    selected_videos.append(result)
+                    logger.info(f"Selected video for language={language}, category={category}: {result['url']}")
+                else:
+                    logger.info(f"No video found for language={language}, category={category}")
+            
+            if not selected_videos:
+                logger.info("No videos available for upload")
+            else:
+                logger.info(f"Found {len(selected_videos)} videos for different language-category combinations")
+            
+            return selected_videos
+        except Exception as e:
+            logger.error(f"Error getting pending videos from Firestore: {e}")
+            return []
