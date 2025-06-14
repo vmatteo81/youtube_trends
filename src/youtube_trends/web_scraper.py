@@ -560,6 +560,77 @@ class YouTubeScraper:
             logger.error(f"Thumbnail URL: {thumbnail_url}")
             return thumbnail_url
 
+    def _setup_authentication(self, ydl_opts: dict) -> str:
+        """
+        Setup authentication for yt-dlp with multiple fallback methods.
+        
+        Args:
+            ydl_opts: yt-dlp options dictionary to modify
+            
+        Returns:
+            str: Description of authentication method used
+        """
+        # Priority order: cookie file -> .netrc -> browser cookies -> no auth
+        
+        # 1. Try cookie file (highest priority)
+        cookie_file = '/app/youtube_cookies.txt'
+        if os.path.exists(cookie_file):
+            ydl_opts['cookiefile'] = cookie_file
+            logger.info(f"Using cookie file: {cookie_file}")
+            return "cookie_file"
+        
+        # 2. Try .netrc file
+        netrc_file = '/app/.netrc'
+        if os.path.exists(netrc_file):
+            ydl_opts['netrc'] = True
+            logger.info(f"Using .netrc file: {netrc_file}")
+            return "netrc"
+        
+        # 3. Try browser cookies (if Chrome is available)
+        chrome_config_path = '/root/.config/google-chrome'
+        if os.path.exists(chrome_config_path):
+            try:
+                ydl_opts['cookiesfrombrowser'] = ('chrome',)
+                logger.info("Using cookies from Chrome browser")
+                return "browser_cookies"
+            except Exception as e:
+                logger.warning(f"Could not use browser cookies: {e}")
+        
+        # 4. No authentication - add fallback options
+        logger.warning("No authentication available - using fallback options")
+        self._add_no_auth_fallback(ydl_opts)
+        return "no_auth_fallback"
+    
+    def _add_no_auth_fallback(self, ydl_opts: dict):
+        """
+        Add fallback options for unauthenticated downloads.
+        
+        Args:
+            ydl_opts: yt-dlp options dictionary to modify
+        """
+        # Use alternative clients that may work without authentication
+        ydl_opts['extractor_args']['youtube'].update({
+            'player_client': ['mweb', 'web', 'android'],
+            'skip': ['hls', 'dash'],  # Skip formats that might require auth
+            'player_skip': ['webpage', 'configs'],
+        })
+        
+        # Add more conservative settings
+        ydl_opts.update({
+            'sleep_interval': 2,  # Longer delays
+            'max_sleep_interval': 10,
+            'retries': 20,  # More retries
+            'fragment_retries': 20,
+        })
+        
+        # Update headers to be less detectable
+        ydl_opts['http_headers'].update({
+            'User-Agent': 'Mozilla/5.0 (Linux; Android 10; SM-G973F) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Mobile Safari/537.36',
+            'X-Forwarded-For': '8.8.8.8',  # Use Google DNS
+        })
+        
+        logger.info("Applied no-auth fallback configuration")
+
     def _download_video(self, url: str, max_retries: int = 3) -> str:
         """
         Download video using yt-dlp with retry mechanism.
@@ -586,51 +657,45 @@ class YouTubeScraper:
             # Limit length to 255 characters (Linux filename limit)
             return title[:255]
         
-        # Base yt-dlp options
+        # Base yt-dlp options with enhanced authentication
         ydl_opts = {
-            'format': 'best[ext=mp4]',
+            'format': 'best[ext=mp4]/best',
             'outtmpl': f'{video_id}.%(ext)s',  # Use video ID for initial download
-            'quiet': True,
-            'no_warnings': True,
+            'quiet': False,  # Enable output for debugging
+            'no_warnings': False,
             'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'nocheckcertificate': True,
             'no_playlist': True,
             'geo_bypass': True,
-            'retries': 10,
-            'fragment_retries': 10,
-            'socket_timeout': 30,
-            'http_chunk_size': 10485760,
+            'retries': 15,
+            'fragment_retries': 15,
+            'socket_timeout': 60,
+            'http_chunk_size': 1048576,  # Reduced chunk size to avoid throttling
             'verbose': True,
-            # Add extractor arguments for YouTube
+            'sleep_interval': 1,  # Add delay between requests
+            'max_sleep_interval': 5,
+            # Enhanced extractor arguments for YouTube
             'extractor_args': {
                 'youtube': {
-                    'skip': ['hls', 'dash'],  # Skip problematic formats
-                    'player_skip': ['configs'],  # Skip player configs that might cause issues
+                    'skip': ['hls'],  # Only skip HLS, keep DASH for better quality
+                    'player_skip': ['configs'],
+                    'player_client': ['mweb', 'web'],  # Try mobile web client first
                 }
+            },
+            # Add headers to appear more like a real browser
+            'http_headers': {
+                'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+                'Accept-Language': 'en-us,en;q=0.5',
+                'Accept-Encoding': 'gzip,deflate',
+                'Accept-Charset': 'ISO-8859-1,utf-8;q=0.7,*;q=0.7',
+                'Keep-Alive': '300',
+                'Connection': 'keep-alive',
             }
         }
         
-        # Try to add cookie support with fallback
-        # Check if we're in a Docker environment (no Chrome browser available)
-        chrome_config_path = '/root/.config/google-chrome'
-        cookie_file = '/app/youtube_cookies.txt'
-        
-        if os.path.exists(cookie_file):
-            # Use cookie file if available (preferred for Docker)
-            ydl_opts['cookiefile'] = cookie_file
-            logger.info(f"Using cookie file: {cookie_file}")
-        elif os.path.exists(chrome_config_path):
-            # Try browser cookies only if Chrome config exists
-            try:
-                ydl_opts['cookiesfrombrowser'] = ('chrome',)
-                logger.info("Using cookies from Chrome browser")
-            except Exception as e:
-                logger.warning(f"Could not use browser cookies: {e}")
-                logger.warning("No cookies available - may encounter authentication issues")
-        else:
-            # No Chrome browser available (Docker environment)
-            logger.warning("Chrome browser not available - no cookies will be used")
-            logger.warning("Consider providing a youtube_cookies.txt file for authentication")
+        # Enhanced authentication setup with multiple fallbacks
+        auth_method = self._setup_authentication(ydl_opts)
+        logger.info(f"Authentication method: {auth_method}")
         
         retry_count = 0
         last_error = None
@@ -642,10 +707,28 @@ class YouTubeScraper:
                     try:
                         info = ydl.extract_info(url, download=True)
                     except Exception as e:
+                        error_msg = str(e).lower()
                         logger.error(f"First attempt failed: {e}")
-                        # Try with video ID directly
-                        logger.info("Trying with video ID directly...")
-                        info = ydl.extract_info(video_id, download=True)
+                        
+                        # Handle specific authentication errors
+                        if "sign in to confirm" in error_msg or "bot" in error_msg:
+                            logger.warning("Authentication/bot detection error - trying alternative approach")
+                            # Try with different client and more conservative settings
+                            alt_opts = ydl_opts.copy()
+                            alt_opts['extractor_args']['youtube'].update({
+                                'player_client': ['android', 'mweb'],
+                                'skip': ['webpage'],
+                                'player_skip': ['webpage', 'configs'],
+                            })
+                            alt_opts['sleep_interval'] = 3
+                            
+                            with yt_dlp.YoutubeDL(alt_opts) as alt_ydl:
+                                logger.info("Trying with alternative client configuration...")
+                                info = alt_ydl.extract_info(url, download=True)
+                        else:
+                            # Try with video ID directly for other errors
+                            logger.info("Trying with video ID directly...")
+                            info = ydl.extract_info(video_id, download=True)
                     
                     if not info:
                         raise Exception("Video information not available")
@@ -686,11 +769,32 @@ class YouTubeScraper:
                     logger.error(f"Error during cleanup: {cleanup_error}")
                 
                 if retry_count < max_retries:
-                    wait_time = 2 ** retry_count  # Exponential backoff
+                    # Handle specific error types with different strategies
+                    error_msg = str(last_error).lower()
+                    
+                    if "sign in to confirm" in error_msg or "bot" in error_msg:
+                        # For authentication errors, try removing cookies on next attempt
+                        if retry_count == 1 and 'cookiefile' in ydl_opts:
+                            logger.warning("Cookies may be expired - trying without cookies on next attempt")
+                            ydl_opts_backup = ydl_opts.copy()
+                            ydl_opts.pop('cookiefile', None)
+                            self._add_no_auth_fallback(ydl_opts)
+                    
+                    wait_time = min(2 ** retry_count, 30)  # Exponential backoff with max 30s
                     logger.info(f"Waiting {wait_time} seconds before retry...")
                     time.sleep(wait_time)
                 else:
                     logger.error(f"All {max_retries} download attempts failed")
+                    logger.error(f"Final error: {last_error}")
+                    
+                    # Provide helpful error message based on error type
+                    error_msg = str(last_error).lower()
+                    if "sign in to confirm" in error_msg or "bot" in error_msg:
+                        logger.error("Authentication required. Please check:")
+                        logger.error("1. YouTube cookies are valid and not expired")
+                        logger.error("2. Cookies were exported correctly from a private/incognito session")
+                        logger.error("3. Consider using a different IP address or VPN")
+                    
                     raise last_error
 
     def _download_thumbnail(self, url: str, video_id: str) -> str:

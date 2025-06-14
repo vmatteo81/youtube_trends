@@ -25,8 +25,30 @@ jobs:
             printf '%s' "${{ secrets.YOUTUBE_COOKIES }}" > youtube_cookies.txt
             echo "YouTube cookies file created"
           else
-            echo "No YouTube cookies provided - scraper will run without authentication"
+            echo "No YouTube cookies provided"
           fi   
+
+      - name: Create .netrc file (optional)
+        run: |
+          if [ -n "${{ secrets.YOUTUBE_USERNAME }}" ] && [ -n "${{ secrets.YOUTUBE_PASSWORD }}" ]; then
+            cat > .netrc << EOF
+          machine youtube.com
+          login ${{ secrets.YOUTUBE_USERNAME }}
+          password ${{ secrets.YOUTUBE_PASSWORD }}
+          
+          machine www.youtube.com
+          login ${{ secrets.YOUTUBE_USERNAME }}
+          password ${{ secrets.YOUTUBE_PASSWORD }}
+          
+          machine accounts.google.com
+          login ${{ secrets.YOUTUBE_USERNAME }}
+          password ${{ secrets.YOUTUBE_PASSWORD }}
+          EOF
+            chmod 600 .netrc
+            echo ".netrc file created for authentication"
+          else
+            echo "No YouTube username/password provided"
+          fi
 
       - name: Create data directory
         run: mkdir -p data
@@ -34,10 +56,14 @@ jobs:
       - name: Build and run Docker container
         run: |
           docker build -t youtube-scraper .
-          # Mount firestore credentials and YouTube cookies (if available)
+          # Mount firestore credentials, YouTube cookies, and .netrc (if available)
           DOCKER_MOUNTS="-v $(pwd)/firestore-access.json:/app/firestore-access.json"
           if [ -f "youtube_cookies.txt" ]; then
             DOCKER_MOUNTS="$DOCKER_MOUNTS -v $(pwd)/youtube_cookies.txt:/app/youtube_cookies.txt"
             echo "Mounting YouTube cookies file"
+          fi
+          if [ -f ".netrc" ]; then
+            DOCKER_MOUNTS="$DOCKER_MOUNTS -v $(pwd)/.netrc:/root/.netrc"
+            echo "Mounting .netrc file for authentication"
           fi
           docker run $DOCKER_MOUNTS youtube-scraper
