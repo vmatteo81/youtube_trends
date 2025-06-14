@@ -17,10 +17,7 @@ jobs:
         run: echo "${{ secrets.ENV_FILE }}" > .env
 
       - name: Create firestore-access.json file
-        run: |
-          cat > firestore-access.json << 'EOF'
-          ${{ vars.FIREBASE_JSON }}
-          EOF   
+        run: printf '%s' '${{ vars.FIREBASE_JSON }}' > firestore-access.json   
 
       - name: Create data directory
         run: mkdir -p data
