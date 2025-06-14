@@ -17,7 +17,7 @@ jobs:
         run: echo "${{ secrets.ENV_FILE }}" > .env
 
       - name: Create firestore-access.json file
-        run: echo "${{ secrets.FIREBASE_FILE }}" > firestore-access.json   
+        run: echo "${{ vars.FIREBASE_JSON }}" > firestore-access.json   
 
       - name: Create data directory
         run: mkdir -p data
@@ -27,4 +27,4 @@ jobs:
 
       - name: Run Docker container
         run: |
-          docker run --env-file .env -v ${{ github.workspace }}/data:/app/data youtube-trends python -m youtube_trends.web_scraper
+          docker run --env-file .env -v ${{ github.workspace }}/data:/app/data -v ${{ github.workspace }}/firestore-access.json:/app/firestore-access.json youtube-trends python -m youtube_trends.web_scraper
