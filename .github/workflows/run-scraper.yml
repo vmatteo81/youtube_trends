@@ -19,14 +19,15 @@ jobs:
       - name: Create firestore-access.json file
         run: printf '%s' '${{ vars.FIREBASE_JSON }}' > firestore-access.json
 
-      - name: Create YouTube cookies file (if provided)
+      - name: Check authentication method
         run: |
-          if [ -n "${{ secrets.YOUTUBE_COOKIES }}" ]; then
-            echo "${{ secrets.YOUTUBE_COOKIES }}" > youtube_cookies.txt
-            echo "YouTube cookies file created"
+          if [ -n "${{ secrets.YOUTUBE_USERNAME }}" ] && [ -n "${{ secrets.YOUTUBE_PASSWORD }}" ]; then
+            echo "✅ YouTube credentials found - will use Selenium for fresh cookie generation"
           else
-            echo "No YouTube cookies provided - will attempt authentication without cookies"
+            echo "❌ No YouTube credentials available - scraper will run without authentication"
+            echo "💡 Add YOUTUBE_USERNAME and YOUTUBE_PASSWORD secrets for automated authentication"
           fi
+          echo "🚫 Static YOUTUBE_COOKIES are ignored - only fresh cookies are used"
 
       - name: Create data directory
         run: mkdir -p data
@@ -34,19 +35,16 @@ jobs:
       - name: Build and run Docker container
         run: |
           docker build -t youtube-scraper .
-          # Mount firestore credentials and YouTube cookies (if available)
+          # Mount firestore credentials only
           DOCKER_MOUNTS="-v $(pwd)/firestore-access.json:/app/firestore-access.json"
           
-          # Set up environment variables for automated cookie generation
+          # Set up environment variables for automated cookie generation only
           DOCKER_ENV=""
           if [ -n "${{ secrets.YOUTUBE_USERNAME }}" ] && [ -n "${{ secrets.YOUTUBE_PASSWORD }}" ]; then
             DOCKER_ENV="-e YOUTUBE_USERNAME='${{ secrets.YOUTUBE_USERNAME }}' -e YOUTUBE_PASSWORD='${{ secrets.YOUTUBE_PASSWORD }}'"
-            echo "YouTube credentials provided - will attempt automated cookie generation"
-          fi
-          
-          if [ -f "youtube_cookies.txt" ]; then
-            DOCKER_MOUNTS="$DOCKER_MOUNTS -v $(pwd)/youtube_cookies.txt:/app/youtube_cookies.txt"
-            echo "Mounting existing YouTube cookies file"
+            echo "🚀 Using Selenium automated fresh cookie generation"
+          else
+            echo "⚠️ No credentials available - running without authentication"
           fi
           
           docker run $DOCKER_MOUNTS $DOCKER_ENV youtube-scraper
