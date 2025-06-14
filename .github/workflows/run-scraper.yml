@@ -17,7 +17,16 @@ jobs:
         run: echo "${{ secrets.ENV_FILE }}" > .env
 
       - name: Create firestore-access.json file
-        run: printf '%s' '${{ vars.FIREBASE_JSON }}' > firestore-access.json   
+        run: printf '%s' '${{ vars.FIREBASE_JSON }}' > firestore-access.json
+
+      - name: Create YouTube cookies file (optional)
+        run: |
+          if [ -n "${{ secrets.YOUTUBE_COOKIES }}" ]; then
+            printf '%s' "${{ secrets.YOUTUBE_COOKIES }}" > youtube_cookies.txt
+            echo "YouTube cookies file created"
+          else
+            echo "No YouTube cookies provided - scraper will run without authentication"
+          fi   
 
       - name: Create data directory
         run: mkdir -p data

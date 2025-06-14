@@ -586,12 +586,13 @@ class YouTubeScraper:
             # Limit length to 255 characters (Linux filename limit)
             return title[:255]
         
+        # Base yt-dlp options
         ydl_opts = {
             'format': 'best[ext=mp4]',
             'outtmpl': f'{video_id}.%(ext)s',  # Use video ID for initial download
             'quiet': True,
             'no_warnings': True,
-            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)',
+            'user_agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36',
             'nocheckcertificate': True,
             'no_playlist': True,
             'geo_bypass': True,
@@ -599,8 +600,30 @@ class YouTubeScraper:
             'fragment_retries': 10,
             'socket_timeout': 30,
             'http_chunk_size': 10485760,
-            'verbose': True
+            'verbose': True,
+            # Add extractor arguments for YouTube
+            'extractor_args': {
+                'youtube': {
+                    'skip': ['hls', 'dash'],  # Skip problematic formats
+                    'player_skip': ['configs'],  # Skip player configs that might cause issues
+                }
+            }
         }
+        
+        # Try to add cookie support with fallback
+        try:
+            # First try to use cookies from browser (works locally)
+            ydl_opts['cookiesfrombrowser'] = ('chrome',)
+            logger.info("Using cookies from Chrome browser")
+        except Exception as e:
+            logger.warning(f"Could not use browser cookies: {e}")
+            # Check if cookie file exists
+            cookie_file = '/app/youtube_cookies.txt'
+            if os.path.exists(cookie_file):
+                ydl_opts['cookiefile'] = cookie_file
+                logger.info(f"Using cookie file: {cookie_file}")
+            else:
+                logger.warning("No cookies available - may encounter authentication issues")
         
         retry_count = 0
         last_error = None
