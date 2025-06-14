@@ -611,19 +611,26 @@ class YouTubeScraper:
         }
         
         # Try to add cookie support with fallback
-        try:
-            # First try to use cookies from browser (works locally)
-            ydl_opts['cookiesfrombrowser'] = ('chrome',)
-            logger.info("Using cookies from Chrome browser")
-        except Exception as e:
-            logger.warning(f"Could not use browser cookies: {e}")
-            # Check if cookie file exists
-            cookie_file = '/app/youtube_cookies.txt'
-            if os.path.exists(cookie_file):
-                ydl_opts['cookiefile'] = cookie_file
-                logger.info(f"Using cookie file: {cookie_file}")
-            else:
+        # Check if we're in a Docker environment (no Chrome browser available)
+        chrome_config_path = '/root/.config/google-chrome'
+        cookie_file = '/app/youtube_cookies.txt'
+        
+        if os.path.exists(cookie_file):
+            # Use cookie file if available (preferred for Docker)
+            ydl_opts['cookiefile'] = cookie_file
+            logger.info(f"Using cookie file: {cookie_file}")
+        elif os.path.exists(chrome_config_path):
+            # Try browser cookies only if Chrome config exists
+            try:
+                ydl_opts['cookiesfrombrowser'] = ('chrome',)
+                logger.info("Using cookies from Chrome browser")
+            except Exception as e:
+                logger.warning(f"Could not use browser cookies: {e}")
                 logger.warning("No cookies available - may encounter authentication issues")
+        else:
+            # No Chrome browser available (Docker environment)
+            logger.warning("Chrome browser not available - no cookies will be used")
+            logger.warning("Consider providing a youtube_cookies.txt file for authentication")
         
         retry_count = 0
         last_error = None

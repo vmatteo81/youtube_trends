@@ -48,6 +48,10 @@ data/*.sqlite3
 # Firestore credentials
 firestore-access.json
 
+# YouTube authentication
+youtube_cookies.txt
+.netrc
+
 # IDE
 .vscode/
 .idea/
