@@ -64,4 +64,4 @@ ENV PYTHONUNBUFFERED=1
 ENV JUSTJACKPOT_API_URL=https://www.justjackpot.net/api/justkidstv/index.php
 
 # Command to run the application
-CMD ["python", "-m", "youtube_trends.scrape_search"] 
+CMD ["python", "-m", "youtube_trends.web_scraper"]
